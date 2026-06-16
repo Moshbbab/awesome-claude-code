@@ -262,3 +262,89 @@ def test_append_to_csv_preserves_existing_data(
         assert len(rows) == 3, "Should have header + 2 data rows"
         assert rows[1][0] == "existing-001", "Existing row should be preserved"
         assert rows[2][0] == sample_resource_data["id"], "New row should be appended"
+
+
+# ---------------------------------------------------------------------------
+# Edge cases
+# ---------------------------------------------------------------------------
+
+def test_append_to_csv_missing_optional_fields_uses_defaults(
+    temp_csv: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing optional fields (secondary_link, subcategory) should default cleanly."""
+    set_csv_path(monkeypatch, temp_csv)
+    minimal_resource = {
+        "id": "min-001",
+        "display_name": "Minimal Resource",
+        "category": "Tooling",
+        "primary_link": "https://example.com/min",
+        "author_name": "Bob",
+        "author_link": "https://github.com/bob",
+        "license": "MIT",
+        "description": "Minimal.",
+    }
+    result = append_to_csv(minimal_resource)
+    assert result is True
+
+    with open(temp_csv, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader)  # Skip header
+        row = next(reader)
+    assert row[0] == "min-001"
+    # Secondary link should be empty
+    assert row[5] == ""
+    # Subcategory should be empty or "General"
+    assert row[3] in ("", "General")
+
+
+def test_append_to_csv_long_description_preserved(
+    temp_csv: Path,
+    sample_resource_data: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Very long descriptions should be stored verbatim (no truncation)."""
+    long_desc = "x" * 500
+    sample_resource_data["description"] = long_desc
+    set_csv_path(monkeypatch, temp_csv)
+    result = append_to_csv(sample_resource_data)
+    assert result is True
+
+    with open(temp_csv, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader)
+        row = next(reader)
+    assert row[13] == long_desc
+
+
+def test_append_to_csv_special_chars_in_fields(
+    temp_csv: Path,
+    sample_resource_data: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fields with commas, quotes, and newlines should be handled by csv.writer."""
+    sample_resource_data["display_name"] = 'Tool, "special" chars'
+    sample_resource_data["description"] = "Line1\nLine2"
+    set_csv_path(monkeypatch, temp_csv)
+    result = append_to_csv(sample_resource_data)
+    assert result is True
+
+    with open(temp_csv, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        next(reader)
+        row = next(reader)
+    assert row[1] == 'Tool, "special" chars'
+    assert row[13] == "Line1\nLine2"
+
+
+def test_append_to_csv_active_default_is_true(
+    temp_csv: Path,
+    sample_resource_data: dict[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Active column should default to 'TRUE' for new resources."""
+    set_csv_path(monkeypatch, temp_csv)
+    append_to_csv(sample_resource_data)
+
+    with open(temp_csv, newline="", encoding="utf-8") as f:
+        rows = list(csv.reader(f))
+    assert rows[1][8] == "TRUE"
